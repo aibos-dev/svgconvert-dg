@@ -29,7 +29,7 @@ for input_image in "$input_dir"/*; do
         output_image="$output_dir/$filename"
 
         # Run the Python script for each image
-        python3 trace_skeleton_copy.py "$input_image" "$output_image"
+        python3 converter.py "$input_image" "$output_image"
         
         # Check if the Python script was successful
         if [[ $? -eq 0 ]]; then
