@@ -11,6 +11,8 @@ In this module we make use of topological skeleton as a set of polylines from bi
 2. The number of paths is reduced.
 
 ## Introduction
+This project requires Python version 3.11 or higher
+
 This repository is actively under development and provides a tool to convert topological skeleton as a set of polylines from binary images into SVG format using a Python-based module. 
 
 ## Prerequisites
