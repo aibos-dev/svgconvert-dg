@@ -2,7 +2,7 @@
 name = "svg-converter"
 version = "0.1.0"
 description = "A module to convert generated SVGs into practical SVGs."
-authors = ["Thembo Jonathan jonathan.thembo@aibos2100.onmicrosoft.com"]
+authors = ["Thembo Jonathan <jonathan.thembo@aibos2100.onmicrosoft.com>"]
 license = "MIT"
 readme = "README.md"
 packages = [{include = "src"}]

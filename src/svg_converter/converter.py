@@ -477,5 +477,5 @@ def batch_process_images(input_folder, output_folder):
 if __name__ == "__main__":
     import os
     input_folder = './processed_images_clean'
-    output_folder = './rocessed_svgs_clean'
+    output_folder = './processed_svgs_clean'
     batch_process_images(input_folder, output_folder)
