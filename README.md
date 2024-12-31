@@ -60,7 +60,7 @@ While in the `scr` folder and installed all dependencies run:
 ```bash
 ./script.sh
 ```
-or just
+or just without execution permisions
 ```bash
 bash script.sh
 ```
