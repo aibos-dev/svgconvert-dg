@@ -29,7 +29,10 @@ Verify installation:
 ```bash
 poetry --version
 ```
-
+Install dependencies
+```bash
+poetry install
+```
 ## File Structure
 ```
 svg_converter/
