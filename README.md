@@ -18,9 +18,6 @@ This repository is actively under development and provides a tool to convert top
 ## Prerequisites
 ### 1. Install Docker
 Ensure Docker and Docker Compose are installed on your system.
-```bash
-sudo apt install docker docker-compose
-```
 
 ### 2. Install Poetry
 Poetry is used for dependency management. Install it with:
