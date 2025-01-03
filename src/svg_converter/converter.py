@@ -13,10 +13,10 @@ from scipy.spatial.distance import euclidean
 # http://agcggs680.pbworks.com/f/Zhan-Suen_algorithm.pdf
 # @param im   the binary image
 def thinningZS(im):
-  prev = np.zeros(im.shape,np.uint8);
+  prev = np.zeros(im.shape,np.int64);
   while True:
     im = thinningZSIteration(im,1);
-    im = thinningZSIteration(im,o)
+    im = thinningZSIteration(im,0)
     diff = np.sum(np.abs(prev-im));
     if not diff:
       break
@@ -25,7 +25,7 @@ def thinningZS(im):
 
 # 1 pass of Zhang-Suen thinning 
 def thinningZSIteration(im, iter):
-  marker = np.zeros(im.shape,np.uint8);
+  marker = np.zeros(im.shape,np.int64);
   for i in range(1,im.shape[0]-1):
     for j in range(1,im.shape[1]-1):
       p2 = im[(i-1),j]  ;
@@ -52,7 +52,7 @@ def thinningZSIteration(im, iter):
 
 def thinningSkimage(im):
   from skimage.morphology import skeletonize
-  return skeletonize(im).astype(np.uint8)
+  return skeletonize(im).astype(np.int64)
 
 def thinning(im):
   try:
@@ -416,7 +416,7 @@ def safe_sum(a, b):
 def process_and_save_image(input_image_path, output_svg_path):
     # Read and prepare image
     im0 = cv2.imread(input_image_path)
-    im = (im0[:, :, 0] < 240).astype(np.uint8)
+    im = (im0[:, :, 0] < 240).astype(np.int64)
     im = thinning(im)
 
     # Get initial polylines
