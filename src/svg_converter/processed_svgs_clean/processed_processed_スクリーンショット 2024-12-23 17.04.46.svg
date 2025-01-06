@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8" ?>
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:ev="http://www.w3.org/2001/xml-events" xmlns:xlink="http://www.w3.org/1999/xlink" baseProfile="full" height="100%" version="1.1" width="100%">
-  <defs/>
-  <polyline fill="none" opacity="0.85" points="98,217 107,220 160,204 256,185 406,165 641,145 824,141 1049,152 1278,177 1419,200 1433,208 1438,216 1437,224 1437,224 1454,225 1462,222 1468,213 1468,201 1462,189 1455,183 1440,178 1439,178 1278,152 1108,133 905,121 755,120 640,125 495,136 272,161 189,175 134,188 106,201 98,211 98,217 98,217 94,227 96,239 107,246 128,250 167,248 308,221 481,200 511,200 526,204 540,213 556,229 577,269 585,306 659,988 666,1010 680,1026 699,1034 717,1034 717,1034 719,1021 713,978 717,972 760,972 771,1036 771,1036 717,1034" stroke="black" stroke-linecap="round" stroke-linejoin="round" stroke-width="5.665573770491805"/>
-  <polyline fill="none" opacity="0.85" points="1437,224 1171,199 1001,192 872,197 798,211 798,211 792,206 778,209 756,228 747,248 746,283 767,550 809,994 808,1017 803,1035 803,1035 814,1035 833,1026 837,1017 839,995 797,549 776,283 776,254 779,240 798,211" stroke="black" stroke-linecap="round" stroke-linejoin="round" stroke-width="5.695999999999998"/>
-  <polyline fill="none" opacity="0.85" points="803,1035 771,1036" stroke="black" stroke-linecap="round" stroke-linejoin="round" stroke-width="6.0"/>
-  <polyline fill="none" opacity="0.85" points="1522,1075 1511,1071 1498,1075" stroke="black" stroke-linecap="round" stroke-linejoin="round" stroke-width="4.266666666666667"/>
-</svg>
