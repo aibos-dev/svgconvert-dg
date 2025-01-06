@@ -320,8 +320,11 @@ def simplify_path(points, tolerance=2.0):
     last = points[-1]
     
     for i in range(1, len(points) - 1):
-        dist = abs(np.cross(np.array(last) - np.array(first), 
-                          np.array(points[i]) - np.array(first))) / euclidean(first, last)
+        dist = abs(np.cross(
+            np.append(np.array(last) - np.array(first), 0),  
+            np.append(np.array(points[i]) - np.array(first), 0)  # Extend to 3D
+        )[2]) / euclidean(first, last)  
+
         if dist > max_dist:
             index = i
             max_dist = dist
