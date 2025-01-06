@@ -438,8 +438,28 @@ def process_and_save_image(input_image_path, output_svg_path):
     # Merge similar paths
     merged_polys = merge_similar_paths(processed_polys, threshold=5)
     
-    # Create SVG without using style tags
+    # Calculate padding and centered viewBox
+    padding = 50  # Padding around the image in pixels
+    width = im.shape[1]
+    height = im.shape[0]
+    
+    # Create SVG with centered viewBox
     dwg = svgwrite.Drawing(output_svg_path)
+    
+    # Calculate the viewBox with padding
+    viewbox_x = -padding
+    viewbox_y = -padding
+    viewbox_width = width + (2 * padding)
+    viewbox_height = height + (2 * padding)
+    
+    # Set viewBox and ensure the SVG is responsive
+    dwg.attribs['viewBox'] = f"{viewbox_x} {viewbox_y} {viewbox_width} {viewbox_height}"
+    dwg.attribs['width'] = '100%'
+    dwg.attribs['height'] = '100%'
+    dwg.attribs['preserveAspectRatio'] = 'xMidYMid meet'
+    
+    # Create a group to hold all paths and translate it to account for padding
+    g = dwg.g()
     
     # Add paths with individual styling
     for poly in merged_polys:
@@ -457,7 +477,10 @@ def process_and_save_image(input_image_path, output_svg_path):
             stroke_linejoin='round',
             opacity=0.85
         )
-        dwg.add(path)
+        g.add(path)
+    
+    # Add the group to the drawing
+    dwg.add(g)
     
     dwg.save(pretty=True)
 
