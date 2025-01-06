@@ -2,179 +2,201 @@ import numpy as np
 import cv2
 import svgwrite
 from scipy.spatial.distance import euclidean
-from pathlib import Path
+from skimage.morphology import skeletonize, medial_axis
+from skimage.measure import find_contours
 from scipy.ndimage import distance_transform_edt
+from pathlib import Path
 
-class StrokeAnalyzer:
-    def __init__(self, image):
-        self.image = image
-        self.dist_transform = None
-        self.compute_distance_transform()
+class SkeletonSVGConverter:
+    def __init__(self, min_stroke_width=1.0, max_stroke_width=8.0):
+        self.min_stroke_width = min_stroke_width
+        self.max_stroke_width = max_stroke_width
         
-    def compute_distance_transform(self):
-        """Compute distance transform for stroke width estimation"""
-        # Ensure binary image
-        if len(self.image.shape) > 2:
-            gray = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
-            _, binary = cv2.threshold(gray, 240, 255, cv2.THRESH_BINARY_INV)
-        else:
-            binary = self.image
+    def preprocess_image(self, image_path):
+        """Preprocess image for skeletonization"""
+        # Read and convert to grayscale
+        img = cv2.imread(str(image_path))
+        if img is None:
+            raise ValueError(f"Could not read image: {image_path}")
             
-        # Compute distance transform
-        self.dist_transform = distance_transform_edt(binary)
-    
-    def estimate_stroke_width(self, contour):
-        """Estimate stroke width for a specific contour"""
-        mask = np.zeros_like(self.image, dtype=np.uint8)
-        cv2.drawContours(mask, [contour], -1, 255, 1)
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         
-        # Get points along the contour
-        points = contour.reshape(-1, 2)
-        
-        # Sample distance transform values along the contour
-        widths = []
-        for point in points:
-            x, y = point
-            if 0 <= y < self.dist_transform.shape[0] and 0 <= x < self.dist_transform.shape[1]:
-                width = self.dist_transform[int(y), int(x)]
-                if width > 0:
-                    widths.append(width)
-        
-        if not widths:
-            return 2.0  # Default width
-            
-        # Calculate stroke width as twice the median distance
-        stroke_width = np.median(widths) * 2
-        
-        # Normalize stroke width to reasonable range
-        return max(1.0, min(stroke_width, 4.0))
-    
-    def is_outer_contour(self, contour):
-        """Determine if contour is likely an outer contour"""
-        area = cv2.contourArea(contour)
-        perimeter = cv2.arcLength(contour, True)
-        if perimeter == 0:
-            return False
-        circularity = 4 * np.pi * area / (perimeter * perimeter)
-        return area > 1000 or circularity > 0.1
-
-def process_image(image_path):
-    """Pre-process image for better contour detection"""
-    # Read image
-    img = cv2.imread(str(image_path))
-    
-    # Convert to grayscale
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    
-    # Apply slight Gaussian blur to reduce noise
-    blurred = cv2.GaussianBlur(gray, (3, 3), 0)
-    
-    # Apply adaptive thresholding
-    binary = cv2.adaptiveThreshold(
-        blurred,
-        255,
-        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY_INV,
-        11,
-        2
-    )
-    
-    # Remove small noise
-    kernel = np.ones((2,2), np.uint8)
-    cleaned = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
-    
-    return cleaned
-
-def convert_to_optimized_svg(input_path, output_path, min_length=10):
-    """Convert PNG to optimized SVG with improved stroke handling"""
-    # Process image
-    binary = process_image(input_path)
-    
-    # Initialize stroke analyzer
-    analyzer = StrokeAnalyzer(binary)
-    
-    # Find contours with hierarchy
-    contours, hierarchy = cv2.findContours(
-        binary,
-        cv2.RETR_CCOMP,  # Retrieve contours in hierarchical order
-        cv2.CHAIN_APPROX_TC89_KCOS
-    )
-    
-    # Create SVG
-    dwg = svgwrite.Drawing(output_path, profile='tiny')
-    
-    # Calculate viewBox
-    if contours:
-        all_points = np.vstack([cnt.reshape(-1, 2) for cnt in contours])
-        x_min, y_min = np.min(all_points, axis=0)
-        x_max, y_max = np.max(all_points, axis=0)
-        margin = 10
-        dwg.viewbox(
-            x_min - margin,
-            y_min - margin,
-            (x_max - x_min) + 2 * margin,
-            (y_max - y_min) + 2 * margin
+        # Apply adaptive thresholding
+        binary = cv2.adaptiveThreshold(
+            gray,
+            255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY_INV,
+            11,
+            2
         )
-    
-    # Process contours in two passes - outer contours first, then inner details
-    for pass_num in range(2):
-        for i, contour in enumerate(contours):
-            if len(contour) < min_length:
-                continue
+        
+        # Remove small noise
+        kernel = np.ones((2,2), np.uint8)
+        cleaned = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
+        
+        return cleaned
+
+    def create_skeleton(self, binary_image):
+        """Create skeleton and get distance transform"""
+        # Create skeleton
+        skeleton = skeletonize(binary_image > 0)
+        
+        # Get distance transform for stroke width
+        dist_transform = distance_transform_edt(binary_image > 0)
+        
+        return skeleton, dist_transform
+        
+    def extract_paths(self, skeleton):
+        """Extract paths from skeleton"""
+        # Find branch points and endpoints
+        kernel = np.array([
+            [1, 1, 1],
+            [1, 10, 1],
+            [1, 1, 1]
+        ])
+        conv = cv2.filter2D(skeleton.astype(np.uint8), -1, kernel)
+        branch_points = conv > 11
+        end_points = conv == 11
+        
+        # Create visited mask
+        visited = np.zeros_like(skeleton, dtype=bool)
+        paths = []
+        
+        # Function to trace path
+        def trace_path(y, x):
+            path = [(y, x)]
+            visited[y, x] = True
+            
+            while True:
+                # Get 8-connected neighbors
+                y, x = path[-1]
+                neighbors = []
+                for dy in [-1, 0, 1]:
+                    for dx in [-1, 0, 1]:
+                        if dy == 0 and dx == 0:
+                            continue
+                        ny, nx = y + dy, x + dx
+                        if (0 <= ny < skeleton.shape[0] and 
+                            0 <= nx < skeleton.shape[1] and 
+                            skeleton[ny, nx] and 
+                            not visited[ny, nx]):
+                            neighbors.append((ny, nx))
                 
-            is_outer = analyzer.is_outer_contour(contour)
+                if not neighbors:
+                    break
+                    
+                # Follow path
+                next_point = neighbors[0]
+                path.append(next_point)
+                visited[next_point] = True
+                
+            return path
+        
+        # Find all paths
+        for y in range(skeleton.shape[0]):
+            for x in range(skeleton.shape[1]):
+                if skeleton[y, x] and not visited[y, x]:
+                    if branch_points[y, x] or end_points[y, x]:
+                        path = trace_path(y, x)
+                        if len(path) > 2:
+                            paths.append(path)
+        
+        return paths
+        
+    def smooth_path(self, path, smoothing=0.2):
+        """Apply Chaikin smoothing to path"""
+        if len(path) < 3:
+            return path
             
-            # First pass: process outer contours, Second pass: process inner details
-            if (pass_num == 0 and not is_outer) or (pass_num == 1 and is_outer):
-                continue
+        points = np.array(path)
+        smooth_points = []
+        
+        for i in range(len(points) - 1):
+            p0 = points[i]
+            p1 = points[i + 1]
             
-            # Estimate appropriate stroke width
-            base_width = analyzer.estimate_stroke_width(contour)
-            stroke_width = base_width * (1.5 if is_outer else 1.0)
+            q = tuple((1 - smoothing) * np.array(p0) + smoothing * np.array(p1))
+            r = tuple(smoothing * np.array(p0) + (1 - smoothing) * np.array(p1))
             
-            # Simplify contour
-            epsilon = 0.002 * cv2.arcLength(contour, True)
-            approx = cv2.approxPolyDP(contour, epsilon, True)
+            smooth_points.extend([q, r])
             
-            # Create path data
-            points = approx.reshape(-1, 2)
+        return smooth_points
+        
+    def get_stroke_width(self, path, dist_transform):
+        """Get varying stroke width along path"""
+        widths = []
+        for y, x in path:
+            width = dist_transform[int(y), int(x)] * 2
+            widths.append(width)
+            
+        # Smooth width variations
+        smoothed_widths = np.convolve(widths, np.ones(3)/3, mode='same')
+        return np.clip(smoothed_widths, self.min_stroke_width, self.max_stroke_width)
+        
+    def convert_to_svg(self, image_path, output_path):
+        """Convert image to SVG using skeletonization"""
+        # Preprocess image
+        binary = self.preprocess_image(image_path)
+        
+        # Create skeleton and get distance transform
+        skeleton, dist_transform = self.create_skeleton(binary)
+        
+        # Extract paths
+        paths = self.extract_paths(skeleton)
+        
+        # Create SVG
+        dwg = svgwrite.Drawing(output_path, profile='tiny')
+        
+        # Set viewbox
+        height, width = binary.shape
+        dwg.viewbox(0, 0, width, height)
+        
+        # Process each path
+        for path in paths:
+            # Smooth path
+            smoothed = self.smooth_path(path)
+            
+            # Get varying stroke widths
+            widths = self.get_stroke_width(path, dist_transform)
+            
+            # Create SVG path
             path_data = []
-            for j, point in enumerate(points):
-                cmd = 'M' if j == 0 else 'L'
-                path_data.append(f"{cmd}{point[0]:.1f},{point[1]:.1f}")
-            
-            # Close the path if it's a closed contour
-            if np.allclose(points[0], points[-1]):
-                path_data.append('Z')
-            
-            # Add path to SVG
+            for i, (y, x) in enumerate(smoothed):
+                cmd = 'M' if i == 0 else 'L'
+                path_data.append(f"{cmd}{x:.1f},{y:.1f}")
+                
+            # Create path with varying stroke width
+            avg_width = np.mean(widths)
             path = dwg.path(
                 d=' '.join(path_data),
                 stroke='black',
-                stroke_width=f"{stroke_width:.1f}",
+                stroke_width=f"{avg_width:.1f}",
                 stroke_linecap='round',
                 stroke_linejoin='round',
                 fill='none'
             )
             dwg.add(path)
-    
-    # Save SVG
-    dwg.save(pretty=True)
-
+            
+        # Save SVG
+        dwg.save(pretty=True)
+        
 def batch_convert(input_folder, output_folder):
     """Process multiple images"""
+    converter = SkeletonSVGConverter()
+    
     input_path = Path(input_folder)
     output_path = Path(output_folder)
     output_path.mkdir(exist_ok=True)
     
     for img_path in input_path.glob('*.png'):
         try:
-            out_file = output_path / f"{img_path.stem}_optimized.svg"
-            convert_to_optimized_svg(img_path, out_file)
+            out_file = output_path / f"{img_path.stem}.svg"
+            converter.convert_to_svg(img_path, out_file)
             print(f"Successfully converted: {img_path.name}")
         except Exception as e:
             print(f"Error converting {img_path.name}: {str(e)}")
 
 if __name__ == "__main__":
     # Example usage
-     batch_convert("processed_images_clean", "processed_svgs_clean")
+    batch_convert("processed_images_clean", "processed_svgs_clean")
