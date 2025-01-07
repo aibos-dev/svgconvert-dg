@@ -7,47 +7,63 @@ import numpy as np
 import cv2
 import svgwrite
 from scipy.spatial.distance import euclidean
+from scipy.ndimage import distance_transform_edt
+from typing import List, Tuple
+
+
+class StrokeWidthCalculator:
+    def __init__(self, min_stroke_width: float = 1.0, max_stroke_width: float = 15.0, smoothing_window=5):
+        self.min_stroke_width = min_stroke_width
+        self.max_stroke_width = max_stroke_width
+        self.smoothing_window = smoothing_window
+
+    def get_stroke_width(self, path: List[Tuple[int, int]], dist_transform: np.ndarray) -> np.ndarray:
+        """Calculate stroke width along path."""
+        widths = [dist_transform[int(y), int(x)] * 2 for y, x in path]
+        smoothed = np.convolve(widths, np.ones(self.smoothing_window)/self.smoothing_window, mode='same')
+        return np.clip(smoothed, self.min_stroke_width, self.max_stroke_width)
+    
 
 # binary image thinning (skeletonization) in-place.
 # implements Zhang-Suen algorithm.
 # http://agcggs680.pbworks.com/f/Zhan-Suen_algorithm.pdf
 # @param im   the binary image
 def thinningZS(im):
-  prev = np.zeros(im.shape,np.int64);
-  while True:
-    im = thinningZSIteration(im,1);
-    im = thinningZSIteration(im,0)
-    diff = np.sum(np.abs(prev-im));
-    if not diff:
-      break
-    prev = im
-  return im
+    prev = np.zeros(im.shape,np.int64)
+    while True:
+        im = thinningZSIteration(im,1)
+        im = thinningZSIteration(im,0)
+        diff = np.sum(np.abs(prev-im))
+        if not diff:
+            break
+        prev = im
+    return im
 
 # 1 pass of Zhang-Suen thinning 
 def thinningZSIteration(im, iter):
-  marker = np.zeros(im.shape,np.int64);
-  for i in range(1,im.shape[0]-1):
-    for j in range(1,im.shape[1]-1):
-      p2 = im[(i-1),j]  ;
-      p3 = im[(i-1),j+1];
-      p4 = im[(i),j+1]  ;
-      p5 = im[(i+1),j+1];
-      p6 = im[(i+1),j]  ;
-      p7 = im[(i+1),j-1];
-      p8 = im[(i),j-1]  ;
-      p9 = im[(i-1),j-1];
-      A  = (p2 == 0 and p3) + (p3 == 0 and p4) + \
-           (p4 == 0 and p5) + (p5 == 0 and p6) + \
-           (p6 == 0 and p7) + (p7 == 0 and p8) + \
-           (p8 == 0 and p9) + (p9 == 0 and p2);
-      B  = p2 + p3 + p4 + p5 + p6 + p7 + p8 + p9;
-      m1 = (p2 * p4 * p6) if (iter == 0 ) else (p2 * p4 * p8);
-      m2 = (p4 * p6 * p8) if (iter == 0 ) else (p2 * p6 * p8);
+    marker = np.zeros(im.shape,np.int64)
+    for i in range(1,im.shape[0]-1):
+        for j in range(1,im.shape[1]-1):
+            p2 = im[(i-1),j]
+            p3 = im[(i-1),j+1]
+            p4 = im[(i),j+1]
+            p5 = im[(i+1),j+1]
+            p6 = im[(i+1),j]
+            p7 = im[(i+1),j-1]
+            p8 = im[(i),j-1]
+            p9 = im[(i-1),j-1]
+            A  = (p2 == 0 and p3) + (p3 == 0 and p4) + \
+                 (p4 == 0 and p5) + (p5 == 0 and p6) + \
+                 (p6 == 0 and p7) + (p7 == 0 and p8) + \
+                 (p8 == 0 and p9) + (p9 == 0 and p2)
+            B  = p2 + p3 + p4 + p5 + p6 + p7 + p8 + p9
+            m1 = (p2 * p4 * p6) if (iter == 0) else (p2 * p4 * p8)
+            m2 = (p4 * p6 * p8) if (iter == 0) else (p2 * p6 * p8)
 
-      if (A == 1 and (B >= 2 and B <= 6) and m1 == 0 and m2 == 0):
-        marker[i,j] = 1;
+            if (A == 1 and (B >= 2 and B <= 6) and m1 == 0 and m2 == 0):
+                marker[i,j] = 1
 
-  return np.bitwise_and(im,np.bitwise_not(marker))
+    return np.bitwise_and(im,np.bitwise_not(marker))
 
 
 def thinningSkimage(im):
@@ -336,25 +352,6 @@ def simplify_path(points, tolerance=2.0):
     else:
         return [first, last]
 
-def estimate_stroke_width(point, im, radius=3):
-    """
-    Estimate stroke width by analyzing local neighborhood
-    """
-    x, y = int(point[0]), int(point[1])
-    if x < 0 or y < 0 or x >= im.shape[1] or y >= im.shape[0]:
-        return 2.0
-        
-    x_start = max(0, x - radius)
-    x_end = min(im.shape[1], x + radius + 1)
-    y_start = max(0, y - radius)
-    y_end = min(im.shape[0], y + radius + 1)
-    
-    neighborhood = im[y_start:y_end, x_start:x_end]
-    if np.any(neighborhood):
-        width = float(np.sum(neighborhood)) / float(np.max(neighborhood))
-        return min(max(width * 0.8, 2.0), 6.0)
-    return 2.0
-
 def merge_similar_paths(polys, threshold=5):
     """
     Merge paths that are likely part of the same stroke
@@ -419,12 +416,17 @@ def safe_sum(a, b):
 def process_and_save_image(input_image_path, output_svg_path):
     # Read and prepare image
     im0 = cv2.imread(input_image_path)
-    im = (im0[:, :, 0] < 240).astype(np.int64)
-    im = thinning(im)
+    binary_image = (im0[:, :, 0] < 240)
+    
+    # Calculate distance transform on the binary image
+    dist_transform = distance_transform_edt(binary_image > 0)
+    
+    # Perform thinning on the binary image
+    im_thinned = thinning(binary_image.astype(np.int64))
 
     # Get initial polylines
     rects = []
-    polys = traceSkeleton(im, 0, 0, im.shape[1], im.shape[0], 10, 999, rects)
+    polys = traceSkeleton(im_thinned, 0, 0, im_thinned.shape[1], im_thinned.shape[0], 10, 999, rects)
     
     # Convert to point format and simplify
     processed_polys = []
@@ -438,50 +440,51 @@ def process_and_save_image(input_image_path, output_svg_path):
     # Merge similar paths
     merged_polys = merge_similar_paths(processed_polys, threshold=5)
     
+    # Initialize stroke width calculator with new parameters
+    width_calculator = StrokeWidthCalculator(min_stroke_width=1.0, max_stroke_width=15.0)
+    
     # Calculate padding and centered viewBox
-    padding = 50  # Padding around the image in pixels
-    width = im.shape[1]
-    height = im.shape[0]
+    padding = 50
+    width = binary_image.shape[1]
+    height = binary_image.shape[0]
     
     # Create SVG with centered viewBox
     dwg = svgwrite.Drawing(output_svg_path)
     
-    # Calculate the viewBox with padding
     viewbox_x = -padding
     viewbox_y = -padding
     viewbox_width = width + (2 * padding)
     viewbox_height = height + (2 * padding)
     
-    # Set viewBox and ensure the SVG is responsive
     dwg.attribs['viewBox'] = f"{viewbox_x} {viewbox_y} {viewbox_width} {viewbox_height}"
     dwg.attribs['width'] = '100%'
     dwg.attribs['height'] = '100%'
     dwg.attribs['preserveAspectRatio'] = 'xMidYMid meet'
     
-    # Create a group to hold all paths and translate it to account for padding
     g = dwg.g()
     
-    # Add paths with individual styling
+    # Add paths with smoothed variable stroke widths
     for poly in merged_polys:
-        # Calculate average stroke width for path
-        widths = [estimate_stroke_width(p, im) for p in poly]
-        avg_width = sum(widths) / len(widths) if widths else 2.0
+        # Convert points for width calculation
+        path_points = [(y, x) for x, y in poly]  # Note: x,y swapped for array indexing
         
-        # Create path with inline styling
-        path = dwg.polyline(
-            points=poly,
-            fill='none',
-            stroke='black',
-            stroke_width=avg_width,
-            stroke_linecap='round',
-            stroke_linejoin='round',
-            opacity=0.85
-        )
-        g.add(path)
+        # Get smoothed stroke widths along the path
+        widths = width_calculator.get_stroke_width(path_points, dist_transform)
+        
+        # Create segments with varying stroke width
+        for i in range(len(poly) - 1):
+            path = dwg.line(
+                start=poly[i],
+                end=poly[i+1],
+                stroke='black',
+                stroke_width=widths[i],
+                stroke_linecap='round',
+                stroke_linejoin='round',
+                opacity=0.85
+            )
+            g.add(path)
     
-    # Add the group to the drawing
     dwg.add(g)
-    
     dwg.save(pretty=True)
 
 def batch_process_images(input_folder, output_folder):
