@@ -12,7 +12,7 @@ from typing import List, Tuple
 
 
 class StrokeWidthCalculator:
-    def __init__(self, min_stroke_width: float = 1.0, max_stroke_width: float = 15.0, smoothing_window=5):
+    def __init__(self, min_stroke_width: float = 1.0, max_stroke_width: float = 8.0, smoothing_window=5):
         self.min_stroke_width = min_stroke_width
         self.max_stroke_width = max_stroke_width
         self.smoothing_window = smoothing_window
@@ -22,7 +22,6 @@ class StrokeWidthCalculator:
         widths = [dist_transform[int(y), int(x)] * 2 for y, x in path]
         smoothed = np.convolve(widths, np.ones(self.smoothing_window)/self.smoothing_window, mode='same')
         return np.clip(smoothed, self.min_stroke_width, self.max_stroke_width)
-    
 
 # binary image thinning (skeletonization) in-place.
 # implements Zhang-Suen algorithm.
@@ -418,17 +417,14 @@ def process_and_save_image(input_image_path, output_svg_path):
     im0 = cv2.imread(input_image_path)
     binary_image = (im0[:, :, 0] < 240)
     
-    # Calculate distance transform on the binary image
     dist_transform = distance_transform_edt(binary_image > 0)
     
-    # Perform thinning on the binary image
     im_thinned = thinning(binary_image.astype(np.int64))
 
-    # Get initial polylines
     rects = []
     polys = traceSkeleton(im_thinned, 0, 0, im_thinned.shape[1], im_thinned.shape[0], 10, 999, rects)
     
-    # Convert to point format and simplify
+    # simplifis and converts to point format
     processed_polys = []
     for poly in polys:
         points = [(p[0], p[1]) for p in poly]
@@ -440,15 +436,15 @@ def process_and_save_image(input_image_path, output_svg_path):
     # Merge similar paths
     merged_polys = merge_similar_paths(processed_polys, threshold=5)
     
-    # Initialize stroke width calculator with new parameters
-    width_calculator = StrokeWidthCalculator(min_stroke_width=1.0, max_stroke_width=15.0)
+    # stroke width calculator with new parameters
+    width_calculator = StrokeWidthCalculator(min_stroke_width=1.0, max_stroke_width=8.0)
     
-    # Calculate padding and centered viewBox
+    #padding and centered viewBox
     padding = 50
     width = binary_image.shape[1]
     height = binary_image.shape[0]
     
-    # Create SVG with centered viewBox
+    # SVG with centered viewBox
     dwg = svgwrite.Drawing(output_svg_path)
     
     viewbox_x = -padding
@@ -463,26 +459,25 @@ def process_and_save_image(input_image_path, output_svg_path):
     
     g = dwg.g()
     
-    # Add paths with smoothed variable stroke widths
     for poly in merged_polys:
-        # Convert points for width calculation
+        # points for width calculation
         path_points = [(y, x) for x, y in poly]  # Note: x,y swapped for array indexing
         
-        # Get smoothed stroke widths along the path
+        #  average stroke width for this polyline
         widths = width_calculator.get_stroke_width(path_points, dist_transform)
+        avg_width = np.mean(widths)
         
-        # Create segments with varying stroke width
-        for i in range(len(poly) - 1):
-            path = dwg.line(
-                start=poly[i],
-                end=poly[i+1],
-                stroke='black',
-                stroke_width=widths[i],
-                stroke_linecap='round',
-                stroke_linejoin='round',
-                opacity=0.85
-            )
-            g.add(path)
+        # single polyline with the average stroke width
+        polyline = dwg.polyline(
+            points=poly,
+            fill='none',
+            stroke='black',
+            stroke_width=avg_width,
+            stroke_linecap='round',
+            stroke_linejoin='round',
+            opacity=0.85
+        )
+        g.add(polyline)
     
     dwg.add(g)
     dwg.save(pretty=True)
