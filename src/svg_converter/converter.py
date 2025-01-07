@@ -193,3 +193,4 @@ def batch_convert(input_folder: Union[str, Path], output_folder: Union[str, Path
 
 if __name__ == "__main__":
     batch_convert("processed_images_clean", "processed_svgs_clean")
+
