@@ -321,19 +321,16 @@ def traceSkeleton(im, x, y, w, h, csize, maxIter, rects):
   
   return frags
 
+# Simplify a path using the Ramer-Douglas-Peucker algorithm
 def simplify_path(points, tolerance=2.0):
-    """
-    Simplify a path using the Ramer-Douglas-Peucker algorithm
-    """
     if len(points) < 3:
         return points
-        
-    # Find point with maximum distance
+
     max_dist = 0
     index = 0
     first = points[0]
     last = points[-1]
-    
+
     for i in range(1, len(points) - 1):
         dist = abs(np.cross(
             np.append(np.array(last) - np.array(first), 0),  
@@ -343,7 +340,7 @@ def simplify_path(points, tolerance=2.0):
         if dist > max_dist:
             index = i
             max_dist = dist
-            
+
     if max_dist > tolerance:
         left = simplify_path(points[:index + 1], tolerance)
         right = simplify_path(points[index:], tolerance)
@@ -351,39 +348,37 @@ def simplify_path(points, tolerance=2.0):
     else:
         return [first, last]
 
+# Merge paths that are likely part of the same stroke
 def merge_similar_paths(polys, threshold=5):
-    """
-    Merge paths that are likely part of the same stroke
-    """
     merged = []
     used = set()
-    
+
     for i, poly1 in enumerate(polys):
         if i in used:
             continue
-            
+
         current = poly1.copy()
         used.add(i)
-        
+
         changed = True
         while changed:
             changed = False
             for j, poly2 in enumerate(polys):
                 if j in used or j == i:
                     continue
-                    
+
                 if (euclidean(current[-1], poly2[0]) < threshold or
                     euclidean(current[-1], poly2[-1]) < threshold or
                     euclidean(current[0], poly2[0]) < threshold or
                     euclidean(current[0], poly2[-1]) < threshold):
-                    
+
                     dists = [
                         (euclidean(current[-1], poly2[0]), 'forward'),
                         (euclidean(current[-1], poly2[-1]), 'reverse'),
                         (euclidean(current[0], poly2[0]), 'reverse_first'),
                         (euclidean(current[0], poly2[-1]), 'forward_first')
                     ]
-                    
+
                     best_merge = min(dists, key=lambda x: x[0])
                     if best_merge[1] == 'forward':
                         current.extend(poly2)
@@ -395,79 +390,83 @@ def merge_similar_paths(polys, threshold=5):
                     else:
                         current = list(reversed(current))
                         current.extend(reversed(poly2))
-                        
+
                     used.add(j)
                     changed = True
                     break
-                    
+
         merged.append(current)
     return merged
 
+# Safely sums two numbers avoiding overflow
 def safe_sum(a, b):
-    """
-    Safely sum two numbers avoiding overflow
-    """
     try:
         return float(a) + float(b)
     except:
         return float(0)
 
+# Process image and save as SVG
 def process_and_save_image(input_image_path, output_svg_path):
-    # Read and prepare image
-    im0 = cv2.imread(input_image_path)
-    binary_image = (im0[:, :, 0] < 240)
-    
-    dist_transform = distance_transform_edt(binary_image > 0)
-    
-    im_thinned = thinning(binary_image.astype(np.int64))
+    # Reads and prepares the binary image
+    im0 = cv2.imread(input_image_path, cv2.IMREAD_GRAYSCALE)
+    _, binary_image = cv2.threshold(im0, 240, 255, cv2.THRESH_BINARY_INV)
 
+    # Computes distance transform for stroke width calculation
+    dist_transform = distance_transform_edt(binary_image)
+
+    # Generates skeleton (centerline) from the binary image
+    im_thinned = thinning(binary_image.astype(np.uint8))
+
+    # Extract polylines from the skeleton
     rects = []
-    polys = traceSkeleton(im_thinned, 0, 0, im_thinned.shape[1], im_thinned.shape[0], 10, 999, rects)
-    
-    # simplifis and converts to point format
+    polys = traceSkeleton(
+        im_thinned, 0, 0, im_thinned.shape[1], im_thinned.shape[0], 10, 999, rects
+    )
+
+    # Simplify and process the extracted polylines
     processed_polys = []
     for poly in polys:
         points = [(p[0], p[1]) for p in poly]
         if len(points) >= 2:
-            simplified = simplify_path(points, tolerance=2.0)
+            simplified = simplify_path(points, tolerance=1.5)  # Simplify paths
             if len(simplified) >= 2:
                 processed_polys.append(simplified)
-    
-    # Merge similar paths
-    merged_polys = merge_similar_paths(processed_polys, threshold=5)
-    
-    # stroke width calculator with new parameters
-    width_calculator = StrokeWidthCalculator(min_stroke_width=1.0, max_stroke_width=8.0)
-    
-    #padding and centered viewBox
-    padding = 50
+
+    # Merge similar or overlapping paths
+    merged_polys = merge_similar_paths(processed_polys, threshold=3)
+
+    # stroke width 
+    width_calculator = StrokeWidthCalculator(min_stroke_width=0.5, max_stroke_width=5.0)
+
+    # SVG dimensions with padding
+    padding = 20
     width = binary_image.shape[1]
     height = binary_image.shape[0]
-    
-    # SVG with centered viewBox
+
+    # SVG file with viewBox and scaling attributes
     dwg = svgwrite.Drawing(output_svg_path)
-    
     viewbox_x = -padding
     viewbox_y = -padding
     viewbox_width = width + (2 * padding)
     viewbox_height = height + (2 * padding)
-    
+
     dwg.attribs['viewBox'] = f"{viewbox_x} {viewbox_y} {viewbox_width} {viewbox_height}"
     dwg.attribs['width'] = '100%'
     dwg.attribs['height'] = '100%'
     dwg.attribs['preserveAspectRatio'] = 'xMidYMid meet'
-    
+
+    # Group for SVG elements
     g = dwg.g()
-    
+
+    # Adds polylines through the center with calculated stroke widths
     for poly in merged_polys:
-        # points for width calculation
-        path_points = [(y, x) for x, y in poly]  # Note: x,y swapped for array indexing
-        
-        #  average stroke width for this polyline
+        path_points = [(y, x) for x, y in poly]  # Swap (x, y) for consistency
+
+        # Compute average stroke width for the polyline
         widths = width_calculator.get_stroke_width(path_points, dist_transform)
-        avg_width = np.mean(widths)
-        
-        # single polyline with the average stroke width
+        avg_width = max(0.5, np.mean(widths))  # Ensure minimum width
+
+        # Generates SVG polyline
         polyline = dwg.polyline(
             points=poly,
             fill='none',
@@ -475,13 +474,14 @@ def process_and_save_image(input_image_path, output_svg_path):
             stroke_width=avg_width,
             stroke_linecap='round',
             stroke_linejoin='round',
-            opacity=0.85
+            opacity=1.0
         )
         g.add(polyline)
-    
+
+    # Add group to SVG and save the file
     dwg.add(g)
     dwg.save(pretty=True)
-
+    
 def batch_process_images(input_folder, output_folder):
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
